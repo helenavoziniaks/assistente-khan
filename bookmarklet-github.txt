@@ -1,0 +1,1 @@
+javascript:(function(){if(window.__KHAN_TUTOR_OVERLAY__){window.__KHAN_TUTOR_OVERLAY__.toggle();return;}var s=document.createElement('script');s.src='https://SEU_USUARIO.github.io/assistente-khan/assistente-khan.js';s.onerror=function(){alert('A pagina bloqueou o script externo. Use o bookmarklet autocontido.');};(document.head||document.documentElement).appendChild(s);})()
