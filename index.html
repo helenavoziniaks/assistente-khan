@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Assistente Khan — Instalar bookmarklet</title>
+  <style>
+    :root {font-family:system-ui,-apple-system,Segoe UI, sans-serif;color-scheme:light}
+    body{background:#edf5f1;color:#183b32;margin:0;padding:28px 16px}
+    main{max-width:680px;margin:50px auto;background:white;border-radius:18px;padding:32px;box-shadow:0 14px 50px #13372b1f}
+    h1{font-size:1.8rem;margin-top:0} p,li{line-height:1.6} .bookmark{background:#0b714f;color:white;font-weight:700;border-radius:10px;padding:13px 22px;display:inline-block;text-decoration:none;margin:18px 0;cursor:grab}
+    code{background:#eff4f2;padding:2px 6px;border-radius:4px;overflow-wrap:anywhere}
+    .note{background:#f0f5fb;border-left:4px solid #5988bd;padding:12px;border-radius:6px}
+  </style>
+</head>
+<body>
+<main>
+  <h1>📗 Assistente Khan</h1>
+  <p>Um painel sobreposto à Khan Academy com cálculo passo a passo para operações, porcentagens e equações. Sem API paga.</p>
+  <p><strong>Arraste o botão verde para sua barra de favoritos:</strong></p>
+  <a class="bookmark" id="favorite" href="#">Assistente Khan</a>
+  <ol>
+    <li>Mostre a barra de favoritos com <code>Ctrl + Shift + B</code>.</li>
+    <li>Arraste o botão acima para a barra de favoritos (não basta clicar nele).</li>
+    <li>Acesse uma questão na Khan Academy, selecione o enunciado ou copie-o, e clique no favorito.</li>
+    <li>Use <strong>Resolver com etapas</strong>, ou copie o problema para analisar no ChatGPT.</li>
+  </ol>
+  <p class="note">Se o navegador ou a Khan Academy bloquear o carregamento externo, use o favorito alternativo do arquivo <code>bookmarklet-autocontido.txt</code>, disponível neste repositório.</p>
+  <p>Este assistente não extrai gabaritos ocultos, não altera respostas e não envia tarefas automaticamente.</p>
+</main>
+<script>
+  const src = new URL('assistente-khan.js', location.href).href;
+  const loader = '(function(){if(window.__KHAN_TUTOR_OVERLAY__){window.__KHAN_TUTOR_OVERLAY__.toggle();return;}var s=document.createElement("script");s.src='+JSON.stringify(src)+';s.onerror=function(){alert("O site bloqueou o script externo. Use bookmarklet-autocontido.txt no favorito.")};(document.head||document.documentElement).appendChild(s)})()';
+  document.getElementById('favorite').href = 'javascript:' + loader;
+</script>
+</body>
+</html>
