@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Assistente Khan — Instalar bookmarklet</title>
+  <title>Assistente Khan — Leitura automática de questões</title>
   <style>
     :root {font-family:system-ui,-apple-system,Segoe UI, sans-serif;color-scheme:light}
     body{background:#edf5f1;color:#183b32;margin:0;padding:28px 16px}
@@ -15,17 +15,17 @@
 </head>
 <body>
 <main>
-  <h1>📗 Assistente Khan</h1>
-  <p>Um painel sobreposto à Khan Academy com cálculo passo a passo para operações, porcentagens e equações. Sem API paga.</p>
+  <h1>📗 Assistente Khan — Leitura automática</h1>
+  <p>Agora o painel <strong>identifica automaticamente o enunciado e as alternativas</strong> visíveis na Khan Academy. Reconhece fórmulas matemáticas e calcula operações e equações simples passo a passo, sem API paga.</p>
   <p><strong>Arraste o botão verde para sua barra de favoritos:</strong></p>
   <a class="bookmark" id="favorite" href="#">Assistente Khan</a>
   <ol>
     <li>Mostre a barra de favoritos com <code>Ctrl + Shift + B</code>.</li>
     <li>Arraste o botão acima para a barra de favoritos (não basta clicar nele).</li>
-    <li>Acesse uma questão na Khan Academy, selecione o enunciado ou copie-o, e clique no favorito.</li>
-    <li>Use <strong>Resolver com etapas</strong>, ou copie o problema para analisar no ChatGPT.</li>
+    <li>Acesse uma questão na Khan Academy e clique no favorito: o enunciado será identificado automaticamente.</li>
+    <li>Confira a resolução automática quando disponível. Para questões complexas, use <strong>Copiar questão para IA</strong> ou capture a imagem para enviar ao ChatGPT.</li>
   </ol>
-  <p class="note">Se o navegador ou a Khan Academy bloquear o carregamento externo, use o favorito alternativo do arquivo <code>bookmarklet-autocontido.txt</code>, disponível neste repositório.</p>
+  <p class="note">A leitura automática funciona com texto e fórmulas visíveis no HTML; imagens e gráficos não são lidos por OCR. O botão de captura ajuda a enviar uma imagem ao ChatGPT manualmente. Se a Khan Academy bloquear o carregamento externo, use <code>bookmarklet-autocontido.txt</code>.</p>
   <p>Este assistente não extrai gabaritos ocultos, não altera respostas e não envia tarefas automaticamente.</p>
 </main>
 <script>

@@ -1,30 +1,20 @@
-# Prompt: Assistente Khan Academy por bookmarklet
+# Prompt: aprimoramento do Assistente Khan Academy (versão 2)
 
-Atue como desenvolvedor sênior de JavaScript, com foco em interfaces sobrepostas a páginas web e acessibilidade.
+Atue como desenvolvedor sênior de JavaScript, especialista em leitura semântica do DOM, acessibilidade, matemática simbólica e bookmarklets.
 
-**Objetivo:** desenvolver um bookmarklet que o usuário consiga armazenar na barra de favoritos e acionar enquanto estuda na Khan Academy. O programa deve exibir um painel flutuante independente, sem alterar o site original.
+**Objetivo:** manter um bookmarklet que abra um painel na Khan Academy e **identifique automaticamente a questão atual**, sem que o usuário precise selecionar o enunciado.
 
-## Requisitos funcionais
+## Requisitos
 
-1. Criar painel flutuante, responsivo, em português do Brasil, sobre a página, com botão de fechar e possibilidade de reabrir pelo favorito.
-2. Permitir capturar texto que o usuário selecionou na página e também colar ou digitar manualmente um exercício.
-3. Resolver localmente exercícios matemáticos básicos, com **etapas do cálculo e resposta final**, incluindo operações, frações aritméticas, potências, porcentagens e equações de 1º e 2º graus.
-4. Nunca inventar uma resposta para formatos não suportados. Exibir aviso claro em exercícios com gráficos, imagens, geometria ou enunciados complexos.
-5. Oferecer um botão para copiar um prompt com o enunciado e pedir ao ChatGPT a resolução detalhada e a checagem da resposta. Abrir o ChatGPT em outra aba, sem presumir uma integração automática ou uso de API.
-6. Não ler gabaritos ocultos, não tentar contornar restrições da Khan Academy, não preencher automaticamente respostas nem enviar tarefas.
-7. Não exigir login adicional, chave de API, servidores próprios, assinaturas nem bibliotecas pagas.
+1. Ao abrir a sobreposição, detectar o exercício em andamento através de elementos visíveis, distinguindo a pergunta dos menus, dicas e soluções ocultas.
+2. Identificar textos, fórmulas em KaTeX/MathML/LaTeX e alternativas visíveis de múltipla escolha.
+3. Detectar mudanças dinâmicas na questão (MutationObserver com debounce) e atualizar o painel sem seleção manual.
+4. Preservar o texto editado pelo usuário enquanto o exercício não mudar; incluir botão para forçar nova leitura.
+5. Resolver localmente e passo a passo expressões aritméticas, porcentagens e equações de primeiro/segundo grau quando reconhecidas com confiança. Não inventar respostas para conteúdo não suportado.
+6. Oferecer captura visual mediante autorização explícita da API `getDisplayMedia`, quando disponível, disponibilizando a imagem para envio manual ao ChatGPT, sem alegar OCR onde ele não existe.
+7. Incluir botões para copiar enunciado + alternativas em um prompt e abrir o ChatGPT; sem chave de API, sem chamadas automáticas a servidores externos e sem bibliotecas pagas.
+8. Interface simples, responsiva, em português brasileiro, com Shadow DOM, textos inseridos somente via `textContent`, sem `eval`, sem leitura de respostas ocultas e sem envio/preenchimento automático de exercícios.
+9. Gerar `assistente-khan.js`, `index.html`, `bookmarklet-github.txt`, `bookmarklet-autocontido.txt` e `README.md` com instruções para GitHub Pages.
+10. Testar no Chromium usando HTML simulado com KaTeX/MathML e alternativas, além de casos de leitura que falham de maneira segura, mudança de exercícios e preservação da edição manual.
 
-## Requisitos técnicos e de segurança
-
-- Usar JavaScript puro e `Shadow DOM` para evitar conflitos de estilos.
-- Usar `textContent` ao exibir conteúdo inserido pelo usuário, evitando injeção de HTML.
-- Não usar `eval`, `new Function` ou scraping de dados privados.
-- Ler apenas o texto selecionado pelo usuário, e não coletar o conteúdo completo da página.
-- Permitir a publicação do código em um repositório GitHub Pages.
-- Incluir um bookmarklet curto que carrega o script hospedado no GitHub Pages e uma versão autocontida como alternativa caso a Política de Segurança de Conteúdo (CSP) do site bloqueie o carregamento externo.
-- Incluir `README.md` com instalação passo a passo no Chrome, exemplos e limitações.
-- Testar os cálculos em expressões com sinais, parênteses, multiplicação implícita, variáveis e discriminante negativo.
-
-## Entregáveis
-
-Entregue arquivos `assistente-khan.js`, `index.html`, `bookmarklet-github.txt`, `bookmarklet-autocontido.txt` e `README.md`. Deixe claro o que funciona sem IA e o que precisa ser enviado manualmente a uma IA para obter a resolução.
+**Limitações a declarar:** bookmarklets não possuem acesso universal a iframes de outro domínio, pixels de canvas ou respostas não presentes no DOM. A política de segurança do site pode bloquear carregamento remoto e captura. OCR requer mecanismo adicional, portanto não prometer reconhecimento de imagens só por capturá-las.

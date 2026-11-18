@@ -1,7 +1,8 @@
 /*
  * Assistente Khan — painel independente, sem API paga.
  * Licença MIT. Não consulta gabaritos internos nem envia respostas à plataforma.
- * Use em exercícios de matemática: operações, porcentagens, equações lineares e quadráticas.
+ * Detecta automaticamente o enunciado visível e resolve operações e equações compatíveis.
+ * Não lê gabaritos internos e não preenche ou envia respostas à plataforma.
  */
 (function () {
   'use strict';
@@ -213,9 +214,48 @@
     return `${heading}4. Pela fórmula de Bhaskara, x = (−b ± √Δ) / (2a).\n   x₁ = ${format(x1)}\n   x₂ = ${format(x2)}\n\nRESPOSTA: x₁ = ${format(x1)}; x₂ = ${format(x2)}`;
   }
 
+  // Identifica operações que podem ser calculadas localmente com segurança.
+  function detectMathExpression(text, mathSnippets = []) {
+    const items = [...mathSnippets, ...String(text || '').split(/\n+/)];
+    const expressions = [];
+    for (const item of items) {
+      const source = String(item || '').replace(/\\\(|\\\)|\\\[|\\\]/g, ' ')
+        .replace(/\\(?:displaystyle|quad|qquad|textstyle)\b/g, ' ')
+        .replace(/\\text\{([^}]*)\}/g, '$1').trim();
+      const percent = source.match(/\b([+-]?\d+(?:[.,]\d+)?)\s*%\s*de\s*([+-]?\d+(?:[.,]\d+)?)/i);
+      if (percent) expressions.push(percent[0]);
+      // Tenta extrair somente a região matemática em torno do sinal de igualdade.
+      const allowed = /[0-9xXπ√²³.,+\-*/^()=\s×÷·⋅]/;
+      for (let k = 0; k < source.length; k++) {
+        if (source[k] !== '=') continue;
+        let l = k - 1;
+        while (l >= 0 && allowed.test(source[l]) && k - l < 95) l--;
+        let r = k + 1;
+        while (r < source.length && allowed.test(source[r]) && r - k < 95) r++;
+        const eq = source.slice(l + 1, r).trim().replace(/[.,;?!\s]+$/, '');
+        if (eq.length >= 3 && eq.length < 180 && /\d|x/i.test(eq)) expressions.push(eq);
+      }
+      // Expressões explícitas, sem palavras em volta.
+      if (/^[\s\d xXπ√²³.,+\-*/^()%×÷·⋅\\{}a-zA-Z]+$/.test(source) && /[\dπx]/i.test(source) && /[+*/÷×^²%-]/.test(source) && source.length < 120) {
+        expressions.push(source);
+      }
+      // Exemplo: "Quanto é 2 + 3 * 4?"
+      const bare = source.match(/(?:^|[^\w])((?:\d+(?:[.,]\d+)?|\(\s*\d+\s*\))\s*[+*/×÷-]\s*(?:\d+(?:[.,]\d+)?|\(\s*\d+\s*\))(?:\s*[+*/×÷-]\s*\d+(?:[.,]\d+)?)*)/);
+      if (bare) expressions.push(bare[1]);
+    }
+    for (const expr of expressions) {
+      try {
+        solve(expr);
+        return expr;
+      } catch (_) { /* A matemática é complexa demais para o resolvedor local. */ }
+    }
+    return '';
+  }
+
   // Entrada de testes sem navegador; não é utilizada no site.
   if (typeof document === 'undefined') {
     globalThis.__khanTutorSolve = solve;
+    globalThis.__khanTutorDetectMath = detectMathExpression;
     return;
   }
 
@@ -224,16 +264,121 @@
     return;
   }
 
+  // Não inspeciona respostas ocultas: apenas elementos visíveis, dentro da questão.
+  const CONTAINERS = [
+    '[data-test-id="problem-area"]', '[data-testid="problem-area"]',
+    '[data-test-id="exercise-content"]', '[data-testid="exercise-content"]',
+    '#problem-area', '#problem', '[data-testid*="question" i]',
+    '[data-test-id*="question" i]', '[class*="question" i]',
+    '[class*="problem" i]', '[class*="exercise-content" i]',
+    '[role="main"]', 'main', 'article'
+  ].join(',');
+  const IGNORE = 'script,style,noscript,template,nav,footer,aside,[hidden],[aria-hidden="true"],#khan-tutor-overlay-root,[role="navigation"],[role="dialog"],[data-testid*="solution" i],[data-test-id*="solution" i],[data-testid*="hint" i],[data-test-id*="hint" i]';
+  const normalizeSpace = (value) => String(value || '').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/[ \t\r\f]+/g, ' ').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  function visible(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.matches && el.matches(IGNORE)) return false;
+    if (el.closest && el.closest('#khan-tutor-overlay-root,[hidden],[aria-hidden="true"]')) return false;
+    const css = window.getComputedStyle(el);
+    if (css.display === 'none' || css.visibility === 'hidden' || css.visibility === 'collapse') return false;
+    return !!(el.getClientRects && el.getClientRects().length);
+  }
+  function renderedText(node, math, depth = 0) {
+    if (!node || depth > 65) return '';
+    if (node.nodeType === 3) return node.nodeValue || '';
+    if (node.nodeType !== 1) return '';
+    const el = node;
+    if (!visible(el)) return '';
+    const tag = el.localName;
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return '';
+    if (tag === 'br') return '\n';
+    if (tag === 'img') return el.getAttribute('alt') || el.getAttribute('title') || '[imagem sem descrição]';
+    if (tag === 'svg' || tag === 'canvas') return el.getAttribute('aria-label') || el.getAttribute('title') || '[gráfico ou figura]';
+    if (tag === 'math' || (el.classList && (el.classList.contains('katex') || el.classList.contains('MathJax')))) {
+      const tex = el.querySelector('annotation[encoding*="tex" i]');
+      const display = normalizeSpace((tex && tex.textContent) || el.getAttribute('alttext') || el.getAttribute('aria-label') || el.textContent || '');
+      if (display && math && !math.includes(display)) math.push(display);
+      return display ? ` ${display} ` : '';
+    }
+    let str = '';
+    for (const child of el.childNodes) str += renderedText(child, math, depth + 1);
+    const block = /^(div|p|li|ul|ol|section|article|h[1-6]|tr|td|blockquote)$/.test(tag);
+    return block ? `\n${str}\n` : str;
+  }
+  function nodeText(node, math) { return normalizeSpace(renderedText(node, math)).slice(0, 5200); }
+  function findAnswers(root) {
+    let scope = root;
+    for (let i = 0; i < 4 && scope && scope.parentElement; i++) {
+      const radio = scope.querySelectorAll('input[type="radio"], [role="radio"], [role="checkbox"], [data-testid*="choice" i], [data-test-id*="choice" i]').length;
+      if (radio >= 2) break;
+      if (scope.matches('main,[role="main"]')) break;
+      scope = scope.parentElement;
+    }
+    if (!scope) return [];
+    const selectors = 'label,[role="radio"],[role="checkbox"],[role="option"],[data-testid*="choice" i],[data-test-id*="choice" i],[class*="answer-choice" i]';
+    const found = [];
+    for (const el of scope.querySelectorAll(selectors)) {
+      if (!visible(el)) continue;
+      const choiceLike = el.matches('[role="radio"],[role="checkbox"],[role="option"],[data-testid*="choice" i],[data-test-id*="choice" i],[class*="answer-choice" i]');
+      if (!choiceLike && !el.querySelector('input[type="radio"],input[type="checkbox"]')) continue;
+      const val = nodeText(el, []);
+      if (val && val.length < 350 && !found.includes(val)) found.push(val);
+      if (found.length >= 12) break;
+    }
+    return found.length >= 2 ? found : [];
+  }
+  function extractPageQuestion() {
+    const elements = [...document.querySelectorAll(CONTAINERS)];
+    if (!elements.length) elements.push(document.body);
+    const seen = new Set();
+    const candidates = [];
+    for (const el of elements.slice(0, 150)) {
+      if (seen.has(el) || !visible(el) || el.closest('#khan-tutor-overlay-root')) continue;
+      seen.add(el);
+      if (el.matches('nav,header,footer,aside')) continue;
+      const math = [];
+      const text = nodeText(el, math);
+      if (text.length < 8 || text.length > 5200) continue;
+      const heading = `${el.id} ${String(el.className || '').slice(0, 100)} ${el.getAttribute('data-testid') || ''} ${el.getAttribute('data-test-id') || ''}`.toLowerCase();
+      const dedicated = /question|problem-area|exercise-content|enunciado/.test(heading);
+      const box = el.getBoundingClientRect();
+      const inViewport = box.bottom >= 0 && box.top < innerHeight;
+      const looksLikeQuestion = /[?¿]|resolv|encontre|calcule|determine|qual|quanto|selecione|escolha|complet|preencha|assinale|simplifiqu|expressão|equação/i.test(text);
+      const hasChoices = !!el.querySelector('input[type="radio"], [role="radio"], [data-testid*="choice" i]');
+      if (!dedicated && !looksLikeQuestion && !math.length && !hasChoices) continue;
+      const score = (dedicated ? 52 : 0) + (inViewport ? 35 : -20)
+        + (math.length ? 24 : 0) + (looksLikeQuestion ? 18 : 0)
+        + (el.querySelector('input[type="radio"], [role="radio"]') ? 18 : 0)
+        - (text.length > 2400 ? 35 : 0) - (text.length > 3800 ? 80 : 0)
+        - (text.length < 20 ? 30 : 0)
+        - (el.matches('main,[role="main"],article') ? 15 : 0);
+      candidates.push({ el, score, text, math });
+    }
+    candidates.sort((a, b) => b.score - a.score || a.text.length - b.text.length);
+    const best = candidates[0];
+    if (!best || (best.score < 5 && !best.math.length)) return null;
+    const options = findAnswers(best.el);
+    const hasOptionsInside = options.length && options.some((opt) => best.text.includes(opt));
+    let prompt = best.text;
+    if (hasOptionsInside) {
+      for (const opt of options) prompt = prompt.replace(opt, '');
+      prompt = normalizeSpace(prompt);
+    }
+    const question = [prompt, options.length ? `Alternativas:\n${options.map((x, i) => `${String.fromCharCode(65 + i)}) ${x}`).join('\n')}` : ''].filter(Boolean).join('\n\n');
+    const containsImage = !!best.el.querySelector('img,canvas,svg') || /\[(imagem|gráfico|figura)/i.test(question);
+    return { question: question.slice(0, 4800), prompt: prompt.slice(0, 3800), math: best.math, options, containsImage, expression: detectMathExpression(prompt, best.math) };
+  }
+
   let lastSelection = window.getSelection ? String(window.getSelection() || '').trim() : '';
   const selectionListener = () => {
     const current = window.getSelection ? String(window.getSelection() || '').trim() : '';
-    if (current && current.length <= 3000) lastSelection = current;
+    if (current && current.length <= 4000) lastSelection = current;
   };
   document.addEventListener('selectionchange', selectionListener);
 
   const host = document.createElement('div');
   host.id = 'khan-tutor-overlay-root';
-  host.style.cssText = 'position:fixed;right:14px;top:14px;width:min(420px,calc(100vw - 28px));z-index:2147483647;';
+  host.style.cssText = 'position:fixed;right:14px;top:14px;width:min(440px,calc(100vw - 28px));z-index:2147483647;';
   const shadow = host.attachShadow({ mode: 'open' });
   const style = document.createElement('style');
   style.textContent = `
@@ -245,9 +390,9 @@
       background:#0b714f; color:#fff; }
     header strong { font-size: 15px; }
     header button { background:transparent; border:0; color:white; cursor:pointer; font-size: 21px; }
-    main { padding: 14px; display: flex; flex-direction: column; gap: 10px; max-height: 78vh; overflow-y: auto; }
+    main { padding: 14px; display: flex; flex-direction: column; gap: 9px; max-height: 78vh; overflow-y: auto; }
     label { font-size: 13px; font-weight: 700; }
-    textarea { resize:vertical; min-height:88px; width:100%; padding:10px; border:1px solid #aab9cb;
+    textarea { resize:vertical; min-height:85px; width:100%; padding:10px; border:1px solid #aab9cb;
       border-radius:9px; background:white; color:#172334; font:13px/1.5 system-ui,sans-serif; }
     .actions { display:flex; gap:7px; flex-wrap:wrap; }
     button { border:1px solid #a9bbce; border-radius:8px; padding:8px 10px; background:#f7fafc;
@@ -258,22 +403,28 @@
       background:#f5f8fc; border:1px solid #d8e3ee; border-radius:9px; padding:12px; min-height:65px; }
     .hint,.status { color:#56687c; font-size:12px; margin:0; }
     .status { min-height:16px; }
+    .scan { font-size:12px; font-weight:700; border-radius:7px; padding:7px 9px;
+      background:#eaf6f0; color:#11553f; }
+    .toggle { display:flex; gap:8px; align-items:center; font-weight:500; }
+    .toggle input { accent-color:#0b714f; }
   `;
   const shell = document.createElement('section');
   shell.className = 'shell';
   shell.setAttribute('role', 'region');
   shell.setAttribute('aria-label', 'Assistente de exercícios Khan');
   shell.innerHTML = `
-    <header><strong>📗 Assistente de exercícios</strong><button id="close" title="Ocultar painel" aria-label="Ocultar painel">×</button></header>
+    <header><strong>📗 Assistente Khan — leitura automática</strong><button id="close" title="Ocultar painel" aria-label="Ocultar painel">×</button></header>
     <main>
-      <p class="hint">Selecione o enunciado na página antes de abrir o favorito, ou cole a questão abaixo.</p>
-      <label for="question">Enunciado / expressão</label>
-      <textarea id="question" placeholder="Ex.: 2x + 3 = 11, x² - 5x + 6 = 0 ou 20% de 150"></textarea>
-      <div class="actions"><button id="capture">Capturar seleção</button><button id="solve" class="primary">Resolver com etapas</button></div>
+      <p id="scan" class="scan" aria-live="polite">Buscando a questão atual...</p>
+      <label class="toggle"><input type="checkbox" id="auto" checked> Detectar automaticamente a próxima questão</label>
+      <div class="actions"><button id="read" class="primary">🔎 Ler questão da página</button><button id="capture">Capturar seleção</button></div>
+      <label for="question">Questão identificada (editável)</label>
+      <textarea id="question" rows="5" placeholder="A questão aparecerá automaticamente aqui. Também é possível digitar ou colar."></textarea>
+      <div class="actions"><button id="solve" class="primary">Resolver com etapas</button><button id="screen">📸 Capturar imagem da tela</button></div>
       <label for="answer">Resolução e resposta</label>
-      <pre id="answer" aria-live="polite">Digite uma expressão para começar.</pre>
-      <div class="actions"><button id="copy">Copiar pergunta para IA</button><button id="open">Abrir ChatGPT</button></div>
-      <p class="hint">Modo local: contas, porcentagens e equações até 2º grau. Para geometria, gráficos e textos, copie a questão para a IA e confira a resposta.</p>
+      <pre id="answer" aria-live="polite">Lendo a questão...</pre>
+      <div class="actions"><button id="copy">Copiar questão para IA</button><button id="open">Abrir ChatGPT</button></div>
+      <p class="hint">O texto e as alternativas visíveis são identificados automaticamente. Fórmulas simples podem ser resolvidas no próprio painel. Questões em imagem ou com gráficos podem exigir captura e envio manual ao ChatGPT. Nada é respondido no site automaticamente.</p>
       <p id="status" class="status" aria-live="polite"></p>
     </main>`;
   shadow.append(style, shell);
@@ -283,9 +434,13 @@
   const question = $('#question');
   const answer = $('#answer');
   const status = $('#status');
-  if (lastSelection) question.value = lastSelection.slice(0, 3000);
+  const scan = $('#scan');
+  let lastSignature = '';
+  let manuallyEdited = false;
+  let current = null;
+  let scheduled = null;
   const message = (msg) => { status.textContent = msg; };
-  const getPrompt = () => `Atue como tutor de matemática e outras disciplinas. Resolva o exercício a seguir com etapas claras e justificadas, apresente a resposta final destacada e confira o resultado. Se o enunciado estiver incompleto ou depender de imagem, explique quais dados faltam sem inventar.\n\nEXERCÍCIO:\n${question.value.trim()}`;
+  const getPrompt = () => `Atue como tutor de matemática e outras disciplinas. Leia cuidadosamente o enunciado abaixo, inclusive todas as alternativas, resolva com etapas claras e justificadas e apresente a resposta final destacada. Verifique se a solução corresponde às alternativas e explique a escolha. Se houver informação visual ausente, peça a imagem, sem inventar dados.\n\nEXERCÍCIO:\n${question.value.trim()}`;
   const copyText = async (text) => {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       try { await navigator.clipboard.writeText(text); return true; } catch (_) { /* fallback */ }
@@ -297,21 +452,136 @@
     question.value = old;
     return !!ok;
   };
+  function updateDetected(force = false) {
+    if (!force && !$('#auto').checked) return;
+    const found = extractPageQuestion();
+    if (!found || found.question.length < 8) {
+      if (force || !lastSignature) {
+        scan.textContent = 'Não encontrei uma questão legível nesta página.';
+        if (!question.value.trim()) answer.textContent = 'Abra uma atividade ou utilize “Capturar seleção”.';
+      }
+      return;
+    }
+    const signature = found.question;
+    if (!force && signature === lastSignature) return;
+    lastSignature = signature;
+    current = found;
+    question.value = found.question;
+    manuallyEdited = false;
+    scan.textContent = `Questão identificada ✓ ${found.options.length ? `— ${found.options.length} alternativas` : ''}${found.containsImage ? ' — contém conteúdo visual' : ''}`;
+    if (found.expression) {
+      try {
+        answer.textContent = solve(found.expression);
+        message('Expressão matemática reconhecida e resolvida localmente. Confira com o enunciado completo.');
+      } catch (error) {
+        answer.textContent = `Expressão identificada: ${found.expression}\n${error.message}`;
+      }
+    } else {
+      answer.textContent = 'Enunciado detectado. Esta questão não se enquadra nos cálculos básicos resolvidos localmente. Para uma resolução completa, use “Copiar questão para IA” e abra o ChatGPT.';
+      if (found.containsImage) answer.textContent += '\n\nHá conteúdo visual: use “Capturar imagem da tela” e envie a imagem ao ChatGPT para incluir esses dados.';
+      message('Leitura realizada a partir dos elementos visíveis da página.');
+    }
+  }
+  function readNow() { manuallyEdited = false; updateDetected(true); }
+  function scheduleRead() {
+    if (scheduled) clearTimeout(scheduled);
+    scheduled = setTimeout(() => { scheduled = null; updateDetected(false); }, 550);
+  }
+  $('#read').addEventListener('click', readNow);
+  $('#auto').addEventListener('change', (event) => {
+    if (event.target.checked) readNow();
+    else message('Atualização automática pausada; você pode editar a questão.');
+  });
+  question.addEventListener('input', () => { manuallyEdited = true; });
   $('#capture').addEventListener('click', () => {
-    if (lastSelection) { question.value = lastSelection.slice(0, 3000); message('Texto selecionado capturado.'); }
-    else message('Primeiro selecione o enunciado na página, ou cole aqui.');
+    if (lastSelection) {
+      question.value = lastSelection.slice(0, 4000); manuallyEdited = true;
+      scan.textContent = 'Trecho selecionado manualmente';
+      message('Seleção capturada. Clique em “Resolver com etapas” ou copie para IA.');
+    } else message('Selecione o texto na Khan Academy e tente novamente.');
   });
   $('#solve').addEventListener('click', () => {
-    try { answer.textContent = solve(question.value); message('Cálculo executado localmente no navegador.'); }
-    catch (err) { answer.textContent = `Não foi possível resolver automaticamente: ${err.message}\n\nPara outros tipos de questões, use “Copiar pergunta para IA”.`; message(''); }
+    const source = question.value.trim();
+    const expr = detectMathExpression(source, !manuallyEdited && current ? current.math : []);
+    try {
+      answer.textContent = solve(expr || source);
+      message(expr && expr !== source ? `Expressão resolvida: ${expr}` : 'Cálculo executado localmente no navegador.');
+    } catch (err) {
+      answer.textContent = `Não foi possível resolver automaticamente: ${err.message}\n\nPara problemas por extenso, gráficos ou exercícios complexos, use “Copiar questão para IA”.`;
+      message('');
+    }
   });
   $('#copy').addEventListener('click', async () => {
-    if (!question.value.trim()) { message('Cole ou capture o enunciado primeiro.'); return; }
+    if (!question.value.trim()) { message('Não há questão para copiar. Clique em “Ler questão da página”.'); return; }
     const copied = await copyText(getPrompt());
-    message(copied ? 'Pergunta copiada. Cole no ChatGPT para receber a resolução.' : 'A cópia automática falhou. Selecione o enunciado e copie manualmente.');
+    message(copied ? 'Enunciado copiado. Cole no ChatGPT para obter a resolução.' : 'Não foi possível copiar automaticamente; selecione e copie manualmente.');
   });
   $('#open').addEventListener('click', () => { window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer'); });
-  const toggle = () => { host.style.display = host.style.display === 'none' ? 'block' : 'none'; };
+
+  // Captura visual somente mediante permissão explícita; não compartilha imagens com servidor.
+  $('#screen').addEventListener('click', async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      message('Captura de tela indisponível neste navegador ou página. Use a ferramenta de captura do Windows (Win + Shift + S).');
+      return;
+    }
+    let stream;
+    try {
+      // Chamada imediata no clique: a API exige interação direta do usuário.
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const video = document.createElement('video');
+      video.muted = true;
+      video.srcObject = stream;
+      await video.play();
+      host.style.visibility = 'hidden';
+      await new Promise((resolve) => setTimeout(resolve, 160));
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      if (!canvas.width || !canvas.height) throw new Error('Não foi possível obter uma imagem da tela.');
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Falha ao criar a imagem.');
+      let copied = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          copied = true;
+        }
+      } catch (_) { /* A política do site pode impedir escrita na área de transferência. */ }
+      if (!copied) {
+        const address = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = address;
+        link.download = 'questao-khan.png';
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(address), 60000);
+      }
+      message(copied ? 'Imagem copiada! Abra o ChatGPT e cole com Ctrl+V. A captura não usa OCR.' : 'Imagem salva como questao-khan.png. Envie-a ao ChatGPT; a captura não usa OCR.');
+    } catch (error) {
+      message(error.name === 'NotAllowedError' ? 'Captura cancelada ou bloqueada pelo navegador.' : `Captura não concluída: ${error.message}`);
+    } finally {
+      host.style.visibility = '';
+      if (stream) stream.getTracks().forEach((track) => track.stop());
+    }
+  });
+
+  const toggle = () => { host.style.display = host.style.display === 'none' ? 'block' : 'none'; if (host.style.display === 'block') readNow(); };
   $('#close').addEventListener('click', toggle);
-  window.__KHAN_TUTOR_OVERLAY__ = { toggle, solve, destroy() { document.removeEventListener('selectionchange', selectionListener); host.remove(); delete window.__KHAN_TUTOR_OVERLAY__; } };
+  const observer = new MutationObserver((changes) => {
+    if (changes.every((change) => host.contains(change.target))) return;
+    scheduleRead();
+  });
+  observer.observe(document.body || document.documentElement, { childList: true, subtree: true, characterData: true });
+  window.__KHAN_TUTOR_OVERLAY__ = {
+    toggle, solve, read: readNow, extract: extractPageQuestion,
+    destroy() {
+      observer.disconnect();
+      if (scheduled) clearTimeout(scheduled);
+      document.removeEventListener('selectionchange', selectionListener);
+      host.remove();
+      delete window.__KHAN_TUTOR_OVERLAY__;
+    }
+  };
+  // A leitura inicial acontece assim que o favorito é acionado.
+  readNow();
 })();
